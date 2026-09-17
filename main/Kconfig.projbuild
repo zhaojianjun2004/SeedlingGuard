@@ -93,4 +93,106 @@ menu "Environment monitor configuration"
         help
             温湿度遥测消息的默认发布周期。
 
+    config APP_OTA_HEALTH_CONFIRMATION_DELAY_MS
+        int "OTA first-boot confirmation delay (ms)"
+        range 1000 60000
+        default 5000
+        help
+            新固件首次启动后等待此时间再执行应用健康检查。等待期间如果
+            程序崩溃、看门狗复位或掉电，Bootloader 会在下次启动时回滚。
+
+    config APP_OTA_FORCE_BOOT_HEALTH_FAILURE
+        bool "Force OTA boot health check failure (test only)"
+        default n
+        help
+            仅用于回滚故障注入实验。启用后，处于 pending verify 的新固件
+            会主动判定自检失败并请求回滚。普通启动不会受影响。
+
+    config APP_OTA_HTTP_TIMEOUT_MS
+        int "HTTP OTA receive timeout (ms)"
+        range 1000 60000
+        default 10000
+        help
+            从电脑 HTTP Server 下载固件时，单次网络读取的超时时间。
+
+    config APP_FIRMWARE_RELEASE_SEQUENCE
+        int "Current firmware release sequence"
+        range 1 2147483647
+        default 121
+        help
+            当前固件的单调发布序号。版本字符串用于展示，发布序号用于防止
+            降级；每个正式候选固件都必须递增。
+
+    config APP_OTA_HARDWARE_ID
+        string "OTA hardware compatibility ID"
+        default "esp32s3-n16r8"
+        help
+            Manifest 必须携带完全相同的硬件兼容标识，防止向错误硬件写入
+            固件。BMS 中可替换为 PCB/硬件版本族标识。
+
+    config APP_OTA_MAX_MANIFEST_SIZE
+        int "Maximum OTA Manifest size (bytes)"
+        range 256 8192
+        default 2048
+        help
+            Manifest 文档允许的最大长度，用于限制外部输入和堆内存占用。
+
+    config APP_OTA_ALLOW_DOWNGRADE
+        bool "Allow OTA release sequence downgrade (test only)"
+        default n
+        help
+            仅用于受控维修实验。默认拒绝发布序号小于或等于当前固件的包。
+
+    config APP_OTA_DOWNLOAD_BUFFER_SIZE
+        int "OTA download buffer size (bytes)"
+        range 1024 16384
+        default 4096
+        help
+            HTTP 接收和顺序写入 OTA 分区使用的工作缓冲区大小。
+
+    config APP_OTA_RESTART_DELAY_MS
+        int "OTA success restart delay (ms)"
+        range 500 10000
+        default 2000
+        help
+            镜像验证并激活成功后，留给日志输出的重启等待时间。
+
+    config APP_OTA_CONSOLE_ENABLED
+        bool "Enable interactive OTA serial console"
+        default n
+        help
+            启用 ota start/status 串口命令。后台日志可能干扰交互，因此默认
+            关闭，保留为理解命令适配器的可选实验入口。
+
+    config APP_OTA_BUTTON_TRIGGER_ENABLED
+        bool "Enable BOOT-button OTA trigger"
+        default y
+        help
+            运行时长按开发板 BOOT 键提交一次 OTA 请求，不依赖串口输入。
+
+    if APP_OTA_BUTTON_TRIGGER_ENABLED
+
+        config APP_OTA_BUTTON_GPIO
+            int "OTA trigger button GPIO"
+            range 0 48
+            default 0
+            help
+                开发板 BOOT 键通常连接 GPIO0，按下为低电平。
+
+        config APP_OTA_BUTTON_HOLD_MS
+            int "OTA trigger hold time (ms)"
+            range 500 10000
+            default 2000
+            help
+                按键持续按下达到此时间后才提交请求，避免误触。
+
+        config APP_OTA_TEST_URI
+            string "Lab OTA Manifest URI"
+            default ""
+            help
+                仅用于局域网实验，例如 http://192.168.1.10:8000/manifest.json。
+                不应把随网络变化的电脑 IP 写进公共 sdkconfig.defaults。
+
+    endif
+
 endmenu

@@ -430,7 +430,8 @@ static esp_err_t mqtt_service_publish_telemetry(mqtt_service_handle_t handle)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Telemetry published: %s", payload);
+    /* 周期性成功上报使用 DEBUG；连接变化和发布错误仍保留正常日志。 */
+    ESP_LOGD(TAG, "Telemetry published: %s", payload);
     return ESP_OK;
 }
 

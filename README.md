@@ -83,7 +83,7 @@ AHT20
 
 ### N16R8 工程配置
 
-`sdkconfig.defaults` 已保存 N16R8、NimBLE 和应用分区等关键配置，当前生成的 `sdkconfig` 也已同步为 16 MB Flash 和 Octal PSRAM。加入 MQTT 后，固件已经略大于默认的 1 MiB 应用分区，因此当前改用 ESP-IDF 官方的 `Single factory app (large), no OTA` 分区表，应用分区大小为 1500 KiB。后续加入 OTA 时，需要重新设计包含两个 OTA App 分区的自定义分区表。
+`sdkconfig.defaults` 已保存 N16R8、NimBLE、回滚和自定义分区表等关键配置，当前生成的 `sdkconfig` 也已同步为 16 MB Flash 和 Octal PSRAM。第二阶段使用项目根目录下的 `partitions.csv`：包含 `otadata`、2 MiB 的 `ota_0` 和 2 MiB 的 `ota_1`，为后续下载新固件、切换启动槽和失败回滚提供基础。其余 Flash 暂不分配，等日志、离线数据或文件系统确有需求时再规划，避免为了“用满容量”而增加复杂度。
 
 N16R8 模组中的八线 PSRAM 可能会占用 GPIO35、GPIO36 和 GPIO37。虽然图上开发板将它们引出，本项目不使用这三个引脚。
 
@@ -137,6 +137,7 @@ SparkFun 压缩包是 Arduino C++ 库，不会直接复制到 ESP-IDF 项目中�
 ```text
 0_helloworld/
 |-- CMakeLists.txt
+|-- partitions.csv             # A/B OTA 分区表
 |-- README.md
 |-- sdkconfig
 |-- sdkconfig.defaults          # 已保存 N16R8 和 NimBLE 的关键默认配置
@@ -151,10 +152,18 @@ SparkFun 压缩包是 Arduino C++ 库，不会直接复制到 ESP-IDF 项目中�
     |-- wifi_manager/           # 已实现：Station、状态快照和退避重连
     |-- mqtt_service/           # 已实现：MQTT 上报、订阅、重连和命令队列
     |-- config_store/           # 已实现：与业务无关的 NVS Blob 读写
-    `-- app_config_service/     # 已实现：配置校验、应用、版本和持久化
+    |-- app_config_service/     # 已实现：配置校验、应用、版本和持久化
+    |-- boot_health_service/    # 已实现：新镜像确认和失败回滚
+    |-- firmware_update_service/# 已实现：平台中立的升级事务和状态机
+    |-- update_transport_http/  # 已实现：实验室 HTTP 字节流适配器
+    |-- update_manifest_json/   # 已实现：Manifest 严格解析和字段边界
+    |-- update_integrity_sha256/# 已实现：固件流式 SHA-256 校验
+    |-- update_platform_esp32/  # 已实现：ESP-IDF OTA 分区适配器
+    |-- ota_button_service/     # 已实现：BOOT 键长按触发 OTA
+    `-- ota_console_service/    # 已实现：可选串口 ota 命令入口
 ```
 
-当前已建立七个独立组件。`config_store` 只封装 NVS Blob 操作，不理解业务字段；`app_config_service` 是运行时配置的唯一权威入口，负责版本、范围校验、运行时应用、持久化以及失败回滚。BLE 和 MQTT 都通过回调访问该服务，不直接调用 NVS。通过 BLE 或 MQTT 成功修改的采样周期，以及通过 MQTT 修改的上报周期，都会在断电重启后恢复。
+`config_store` 只封装 NVS Blob 操作，不理解业务字段；`app_config_service` 是运行时配置的唯一权威入口，负责版本、范围校验、运行时应用、持久化以及失败回滚。BLE 和 MQTT 都通过回调访问该服务，不直接调用 NVS。OTA 同样按接口拆分：Core 不知道 HTTP 和 ESP32 Flash API，BOOT 键和可选串口命令都只提交请求，不执行耗时下载。这样以后把 HTTP 换成 CAN 时，升级事务和状态模型仍可复用。
 
 ## 6. 核心数据与模块边界
 
@@ -355,17 +364,17 @@ env/<device_id>/config/state    设备发布当前配置
 
 验收：断电重启后配置仍在；配置损坏时能回退到安全默认值；运行 24 小时无明显异常。
 
-## 12. 第一版暂不做
+## 12. 第一阶段暂不做
 
 - 自制手机 App；
 - 显示屏和网页管理后台；
 - 公网云平台接入；
-- OTA 固件升级；
+- OTA 固件升级（现已进入第二阶段实现）；
 - 深度睡眠和电池供电优化；
 - Home Assistant 自动发现；
 - 复杂的历史数据存储。
 
-基础闭环完成后，可从 OTA、TLS、Home Assistant、网页仪表盘或低功耗中选一个作为第二阶段扩展。
+第一阶段基础闭环已经完成。第二阶段选择 OTA 作为主线，先建立 A/B 分区、待验证固件的启动自检以及确认/回滚机制，再加入实际固件下载通道。TLS、Home Assistant、网页仪表盘和低功耗暂不并行扩展。
 
 ## 13. 调试与安全原则
 
@@ -382,7 +391,7 @@ env/<device_id>/config/state    设备发布当前配置
 1. 完成本地 Broker 学习后，是否继续增加云端 Broker、TLS 和证书校验；
 2. 第一版 Wi-Fi 参数继续通过本地配置写入，还是扩展为 BLE 配网。
 
-建议下一步：**烧录阶段 6 固件，完成首次默认值、MQTT/BLE 修改、断电恢复和擦除 NVS 回退测试。**
+当前实验状态：**`1.1.1 -> 1.1.2` 正常升级、`1.1.3 -> 1.1.2` 故障回滚、`1.1.2 -> 1.2.0` 协议过渡升级以及 `1.2.0 -> 1.2.1` Manifest 升级均已实机验证。开发板当前从 `ota_1` 运行已确认有效的 `1.2.1 / release_sequence=121`。**
 
 ## 15. 当前代码说明
 
@@ -397,6 +406,14 @@ env/<device_id>/config/state    设备发布当前配置
 | BLE 表现层 | `components/ble_service` | NimBLE、广播、GATT、通知和采样周期写入 |
 | 网络管理层 | `components/wifi_manager` | Wi-Fi Station、事件处理、连接状态快照和自动重连 |
 | 消息服务层 | `components/mqtt_service` | MQTT 连接、Topic、遥测发布、命令队列、JSON 校验和会话恢复 |
+| 升级事务层 | `components/firmware_update_service` | 单会话状态机、镜像前置检查、进度、失败清理和重启调度 |
+| 升级传输层 | `components/update_transport_http` | 打开 HTTP URI、顺序读取字节流、超时和连接清理 |
+| 清单解析层 | `components/update_manifest_json` | JSON 字段唯一性、类型、长度、Schema 和 SHA-256 文本解析 |
+| 完整性层 | `components/update_integrity_sha256` | 对下载字节流计算 SHA-256，并与 Manifest 摘要比较 |
+| 升级平台层 | `components/update_platform_esp32` | 选择备用槽、写入、镜像校验、激活和中止 |
+| 启动确认层 | `components/boot_health_service` | 检查 pending verify、新固件确认和主动回滚 |
+| 按键入口层 | `components/ota_button_service` | 检测 BOOT 键长按并提交一次升级请求，不执行下载 |
+| 可选调试入口层 | `components/ota_console_service` | `ota start`、`ota status`；默认关闭，不在命令回调内下载 |
 | 应用装配层 | `main/main.c` | 初始化 NVS、注入数据回调、创建并启动各服务 |
 
 驱动层不知道 SDA/SCL 是哪个 GPIO，也不创建采样任务。业务层不自行解析 AHT20 原始字节。BLE 组件甚至不依赖 `sensor_service`：`main.c` 通过回调适配两边的数据结构。这样后续增加 MQTT 时也能复用相同快照，而不会让无线模块直接访问 I²C。
@@ -425,21 +442,35 @@ env/<device_id>/config/state    设备发布当前配置
 - Wi-Fi 最大重连等待时间，默认 30000 ms；
 - MQTT Broker URI，默认留空；
 - MQTT 用户名和密码，默认留空；
-- MQTT 遥测上报周期，默认 10000 ms。
+- MQTT 遥测上报周期，默认 10000 ms；
+- OTA 首次启动确认等待时间，默认 5000 ms；
+- HTTP OTA 读取超时，默认 10000 ms；
+- 当前固件发布序号，`1.2.1` 为 121；
+- OTA 硬件兼容标识，默认 `esp32s3-n16r8`；
+- Manifest 最大长度，默认 2048 字节；
+- 允许降级开关，默认关闭，仅用于受控实验；
+- OTA 下载缓冲区，默认 4096 字节；
+- OTA 成功后的重启等待时间，默认 2000 ms；
+- BOOT 键 OTA 触发开关，默认开启；
+- OTA 触发 GPIO，默认 GPIO0；
+- BOOT 键长按时间，默认 2000 ms；
+- 实验固件 URI，默认留空，需要填写电脑局域网地址；
+- 交互式 OTA 串口控制台，默认关闭；
+- OTA 启动自检强制失败开关，仅用于回滚实验。
 
 SSID 留空时不会启动 Wi-Fi，但 AHT20 采样和 BLE 会继续正常工作。Wi-Fi 密码会写入本机生成的 `sdkconfig`，不要把包含真实密码的文件提交到公开仓库或发给他人。
 
 ### 15.4 编译、烧录和查看日志
 
-当前工程已在 ESP-IDF v5.1.2 下完成全量编译。固件文件为 `build/0_helloworld.bin`，大小为 `0x106fa0` 字节，即 1077152 字节（约 1.03 MiB）。当前 1500 KiB 应用分区还剩约 30%。由于分区表已由默认 1 MiB 方案调整为 1500 KiB 方案，首次使用新配置时必须执行完整烧录，不能只单独烧录 App 二进制文件。
+当前工程已在 ESP-IDF v5.1.2 下完成全量编译。开发板当前从 `ota_1` 运行并确认了 `1.2.1 / release_sequence=121`；固件大小为 `0x113bd0` 字节（1129424 字节，约 1.08 MiB），每个 OTA 槽还剩约 46%。实验使用的 `manifest.json` 已与该二进制的大小和 SHA-256 对齐，并通过实机升级验证。
 
 1. 按本 README 完成 AHT20 接线；
 2. 将电脑连到右侧 FT232 Type-C 接口；
 3. 在 VS Code 状态栏确认 FT232 对应的 COM 口；
-4. 执行 `ESP-IDF: Build, Flash and Start a Monitor on Your Device`；
-5. 串口监视波特率为 115200。
+4. 只有第一次部署分区表和基线固件时才执行 `ESP-IDF: Build, Flash and Start a Monitor on Your Device`；
+5. 当前 OTA 实验只保持 HTTP Server 与串口 Monitor 运行，通过长按 BOOT 触发，串口波特率为 115200。
 
-正常时日志会显示 AHT20 初始化成功、NimBLE Host 启动、BLE 地址以及 `Advertising as 'esp32s3-env'`，然后每 2 秒输出一次温度和湿度。如果看到 `ESP_FAIL`，优先检查 3V3、GND、SDA/SCL 是否接反、面包板是否接触良好。
+正常时日志会显示 AHT20 初始化成功、NimBLE Host 启动、BLE 地址以及 `Advertising as 'esp32s3-env'`。后台仍按配置周期采样，但成功采样和成功上报日志已降为 DEBUG，INFO 级别主要保留初始化、状态变化和错误，便于观察 OTA。如果看到 `ESP_FAIL`，优先检查 3V3、GND、SDA/SCL 是否接反、面包板是否接触良好。
 
 ### 15.5 BLE GATT 接口
 
@@ -550,7 +581,115 @@ Error: app partition is too small for binary
 Part 'factory' ... size 0x100000
 ```
 
-当前工程已经在 `sdkconfig.defaults` 中选择 `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y`，使用官方 1500 KiB 单 App 分区。修改分区方案后应执行完整的 Build + Flash，让新的分区表和 App 一起写入 Flash。只写入 `0_helloworld.bin` 会使设备继续使用旧分区表。该分区没有 OTA 能力；进入 OTA 阶段时需要重新规划。
+当前工程已经改为自定义 `partitions.csv`，提供 `otadata`、`ota_0` 和 `ota_1`。修改分区方案后应执行完整的 Build + Flash，让新分区表、初始 OTA 数据和 App 一起写入 Flash；只写入 `0_helloworld.bin` 会使设备继续使用旧分区表。若构建仍显示旧的 `factory` 分区，先执行 `ESP-IDF: Full Clean`，再重新 Build。
+
+#### 第二阶段：A/B 分区、首次启动确认与回滚
+
+`boot_health_service` 负责读取并记录当前运行分区、下一个更新分区、固件版本、复位原因和镜像状态。只有当 bootloader 将新镜像标记为 `ESP_OTA_IMG_PENDING_VERIFY` 时，服务才会启动延时自检：
+
+1. 等待 `APP_OTA_HEALTH_CONFIRMATION_DELAY_MS`，让必要服务完成初始化；
+2. 调用应用层自检回调，检查进程内部的必要服务是否已创建；
+3. 自检通过后调用 `esp_ota_mark_app_valid_cancel_rollback()` 确认新固件；
+4. 自检失败时调用 `esp_ota_mark_app_invalid_rollback_and_reboot()`，使 bootloader 回到上一槽固件。
+
+自检刻意不要求 AHT20、Wi-Fi 或 MQTT Broker 此刻在线。它们属于可能暂时不可用的外部依赖，不能因为传感器未接、路由器断电或服务器维护就把结构正确的新固件判为坏版本。
+
+`APP_OTA_FORCE_BOOT_HEALTH_FAILURE` 是回滚实验使用的故障注入开关。它只会影响处于 `PENDING_VERIFY` 状态的新 OTA 镜像；普通串口全量烧录后的常规启动不会无条件重启。
+
+### 15.10 HTTP OTA 实验步骤
+
+当前实现把职责分成四段：`ota_button_service` 只把长按事件转换为升级请求；`firmware_update_service` 负责单会话事务和状态；`update_transport_http` 只提供顺序字节流；`update_platform_esp32` 只包装 ESP-IDF 分区操作。`ota_console_service` 保留为可选调试入口，但默认关闭，因为持续输出日志的串口监视器并不适合交互式输入。一次升级的主路径是：
+
+```text
+BOOT 键持续按下 2 秒
+  -> 按键服务提交预配置 URI
+  -> 检查 Wi-Fi 和会话状态
+  -> HTTP 获取 Content-Length 和镜像字节
+  -> 检查 ESP 镜像头、项目名和版本
+  -> 写入当前未运行的 OTA 槽
+  -> esp_ota_end() 完整性校验
+  -> 将新槽设为启动分区并重启
+  -> 新固件处于 pending verify
+  -> 延时健康检查
+  -> 确认有效，或标记无效并回滚
+```
+
+第一次实验按以下顺序进行：
+
+1. 通过 `ipconfig` 查电脑与 ESP32 同一网络下的 IPv4 地址。不要填写 `127.0.0.1`，因为它在 ESP32 上表示 ESP32 自己；
+2. 在 `menuconfig -> Environment monitor configuration` 中填写 `Lab OTA firmware URI`，格式为 `http://电脑IPv4:8000/0_helloworld.bin`；确认 BOOT 键触发已开启、GPIO 为 0、串口控制台保持关闭；
+3. 保持根目录 `CMakeLists.txt` 中 `PROJECT_VER` 为 `1.1.1`，执行完整 Build + Flash + Monitor。这一步会写入 bootloader、A/B 分区表、初始 OTA 数据和具有按键触发能力的基线 App；
+4. 确认日志包含 `App version: 1.1.1`、`Running partition: label=ota_0`、`Next update partition: label=ota_1`、`This boot does not require OTA confirmation` 和 `Hold BOOT button for 2000 ms to request OTA`。默认不再出现 `env>`；
+5. 将 `PROJECT_VER` 改为 `1.1.2`，只执行 Build，不要执行 Flash，否则就绕过了 OTA 下载过程；
+6. 在另一个 PowerShell 中进入项目根目录，启动本地文件服务器：
+
+```powershell
+python -m http.server 8000 --directory build
+```
+
+7. 开发板已经连上 Wi-Fi 后，按住 BOOT 键至少 2 秒；看到 `OTA request submitted; release BOOT button` 后立即松开；
+8. 观察 10% 粒度的下载进度、目标分区 `ota_1`、镜像激活和自动重启；
+9. 新版本启动后应先显示 `pending_verify`，约 5 秒后出现 `Boot health check passed; firmware marked valid`，并显示 `App version: 1.1.2`。
+
+GPIO0 同时也是 ESP32-S3 的启动绑带引脚，因此日志提示提交成功后必须松开 BOOT 键，再让 OTA 流程自动重启。如果重启期间仍把 GPIO0 拉低，芯片可能进入 ROM 下载模式；此时松开按键并按一下 RST 即可恢复正常启动。
+
+首次实机升级已验证通过：`1.1.1` 从 `ota_0` 运行，通过 HTTP 下载 `1.1.2` 到 `ota_1`；新固件首次启动状态为 `pending_verify`，5 秒后应用自检通过并标记为 `valid`。升级期间的 AHT20 失败来自当前小模块引脚未焊接造成的接触不良，不属于 OTA 故障，也没有被健康检查错误地当作回滚条件。
+
+若按键提交后提示网络未就绪，等待 Wi-Fi 获得 IPv4 后松开并重新长按。若电脑 HTTP Server 没有访问记录，检查 Windows 防火墙、手机热点的客户端隔离以及 IP/端口。若提示版本已经运行，说明提供的仍是当前版本固件；必须修改 `PROJECT_VER` 并重新 Build。
+
+主动回滚也已实机验证：`1.1.3` 下载到 `ota_0` 并以 `pending_verify` 启动，故障注入使健康检查返回 `ESP_FAIL`，ESP-IDF 随后自动回到 `ota_1` 中状态为 `valid` 的 `1.1.2`。故障注入开关已经关闭。
+
+当前 HTTP 适配器只允许局域网实验用的 `http://`。从 `1.2.0` 起，兼容性、版本和 SHA-256 由独立 Manifest/Integrity 组件处理，HTTP 层仍只负责字节流。
+
+### 15.11 Manifest、发布序号与 SHA-256
+
+从 `1.2.0` 开始，按键提交的是 `manifest.json` 地址，而不是裸 `.bin` 地址。Core 按以下顺序处理：
+
+```text
+下载有最大长度限制的 Manifest
+  -> 严格解析唯一字段和数据类型
+  -> 检查 product、hardware、version、release_sequence
+  -> 打开 image_url，并核对 Content-Length == image_size
+  -> 检查镜像头的项目名/版本与 Manifest 一致
+  -> 一边写备用槽，一边计算 SHA-256
+  -> 摘要、ESP 镜像完整性全部通过后才激活新槽
+```
+
+Manifest 格式如下：
+
+```json
+{
+  "schema_version": 1,
+  "product": "0_helloworld",
+  "hardware": "esp32s3-n16r8",
+  "version": "1.2.1",
+  "release_sequence": 121,
+  "image_url": "http://192.168.45.139:8000/0_helloworld.bin",
+  "image_size": 1129424,
+  "sha256": "64个十六进制字符"
+}
+```
+
+版本字符串用于人阅读，`release_sequence` 才用于机器判断新旧。Core 默认要求目标序号严格大于当前序号，因此不会依赖字符串字典序去比较 `1.10.0` 和 `1.9.0`。产品、硬件、长度、镜像头版本或摘要任一不一致，都不会激活新槽。
+
+工程提供 `tools/generate_ota_manifest.py`，构建新版本后可生成清单：
+
+```powershell
+python tools/generate_ota_manifest.py `
+  --binary build/0_helloworld.bin `
+  --output build/manifest.json `
+  --product 0_helloworld `
+  --hardware esp32s3-n16r8 `
+  --version 1.2.1 `
+  --release-sequence 121 `
+  --image-url http://192.168.45.139:8000/0_helloworld.bin
+```
+
+协议过渡分为两步：板上的 `1.1.2` 只认识裸固件 URL，因此先沿用旧入口把 `1.2.0` 写入备用槽；随后由 `1.2.0` 读取 `1.2.1 + manifest.json` 并完成新流程。两步均已实机验证。直接让 `1.1.2` 请求 Manifest 会因为旧固件不认识 JSON 而失败。
+
+SHA-256 可以发现下载损坏或 Manifest 与镜像不一致，但不能证明发布者身份。当前 Manifest 和固件仍通过明文 HTTP 获取，攻击者若能同时替换两者，仍可重新计算摘要。因此这一阶段不能宣称具备量产安全 OTA；后续仍需 HTTPS 身份校验或离线数字签名、可信公钥和密钥生命周期设计。
+
+当前发布序号编译在 Application 内，适合验证“普通升级请求不得降级”的策略，但它会随 Application 一起回滚，不能充当不可逆的安全计数器。量产防回滚必须把可信的单调版本放在 Bootloader 可保护的冗余元数据、一次性熔丝或其他受保护存储中，并由不可随 App 降级的验证链执行检查；F103 BMS 也要按这个原则单独设计。
 
 #### MQTTX 连接成功，但看不到 ESP32 的遥测
 
@@ -616,7 +755,7 @@ MQTTX 中消息格式选择 JSON，QoS 选择 1，并关闭 `Retain`。控制命
 
 上报周期改变后，调度器不会强制从命令到达时重新开始计时，因此第一条遥测与命令之间不一定正好间隔 30 秒，最长等待约为新的上报周期；后续才会稳定按新周期上报。采样周期允许 1～600 秒，上报周期允许 1～3600 秒。阶段 6 固件会保存成功更新后的完整配置，设备重启后从 NVS 恢复。
 
-### 15.10 NVS 配置持久化设计与验收
+### 15.12 NVS 配置持久化设计与验收
 
 运行时配置采用单一权威入口，数据流如下：
 

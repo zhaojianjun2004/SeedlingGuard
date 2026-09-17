@@ -155,7 +155,8 @@ static void sensor_service_task(void *context)
 
         if (result == ESP_OK) {
             sensor_service_record_success(handle, &measurement);
-            ESP_LOGI(TAG,
+            /* 周期性成功数据使用 DEBUG，避免持续覆盖串口交互提示符。 */
+            ESP_LOGD(TAG,
                      "Temperature: %.2f C, humidity: %.2f %%RH",
                      (double)measurement.temperature_c,
                      (double)measurement.humidity_percent);
