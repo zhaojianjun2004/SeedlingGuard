@@ -2,3 +2,7 @@ build/
 sdkconfig
 sdkconfig.old
 .vscode/
+
+# Generated nursery verification and local recovery backup
+build_*/
+tmp/

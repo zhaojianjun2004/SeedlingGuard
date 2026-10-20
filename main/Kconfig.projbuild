@@ -1,50 +1,55 @@
-menu "Environment monitor configuration"
+menu "Nursery monitoring configuration"
 
-    config APP_AHT20_SDA_GPIO
-        int "AHT20 SDA GPIO"
-        range 0 48
-        default 8
-        help
-            GPIO connected to the AHT20 SDA pin. GPIO8 is the recommended
-            default for the development board used by this project.
+    config APP_GATEWAY_LINK_ENABLED
+        bool "Enable F407 UART gateway link"
+        default y
 
-    config APP_AHT20_SCL_GPIO
-        int "AHT20 SCL GPIO"
-        range 0 48
-        default 9
-        help
-            GPIO connected to the AHT20 SCL pin. GPIO9 is the recommended
-            default for the development board used by this project.
+    if APP_GATEWAY_LINK_ENABLED
 
-    config APP_AHT20_I2C_CLOCK_HZ
-        int "AHT20 I2C clock frequency (Hz)"
-        range 10000 400000
-        default 100000
-        help
-            Start at 100 kHz for breadboard wiring. The AHT20 data sheet
-            permits up to 400 kHz.
+        config APP_GATEWAY_UART_TX_GPIO
+            int "Gateway UART1 TX GPIO"
+            range 0 48
+            default 17
 
-    config APP_SENSOR_SAMPLE_PERIOD_MS
-        int "Sensor sample period (ms)"
-        range 1000 600000
-        default 2000
-        help
-            The AHT20 data sheet recommends an interval longer than one
-            second to limit self-heating. This project defaults to 2 seconds.
+        config APP_GATEWAY_UART_RX_GPIO
+            int "Gateway UART1 RX GPIO"
+            range 0 48
+            default 18
 
-    config APP_BLE_DEVICE_NAME
-        string "BLE device name"
-        default "esp32s3-env"
-        help
-            Name shown in BLE scanner applications. Keep it short enough to
-            fit in the legacy advertising or scan-response payload.
+        config APP_GATEWAY_UART_BAUDRATE
+            int "Gateway UART baud rate"
+            range 9600 1000000
+            default 115200
+
+    endif
+
+    config APP_GATEWAY_HTTP_ENABLED
+        bool "Enable F407 local HTTP dashboard"
+        depends on APP_GATEWAY_LINK_ENABLED
+        default y
+
+    if APP_GATEWAY_HTTP_ENABLED
+
+        config APP_GATEWAY_HTTP_PORT
+            int "Local dashboard HTTP port"
+            range 1 65535
+            default 80
+
+        config APP_GATEWAY_HTTP_CONTROL_TOKEN
+            string "Local dashboard control token (empty disables writes)"
+            default ""
+            help
+                POST /api/control requires X-Gateway-Token matching this value.
+                Empty keeps the monitoring page read-only. Do not commit real
+                tokens in a public sdkconfig.
+
+    endif
 
     config APP_WIFI_SSID
         string "Wi-Fi SSID"
         default ""
         help
-            要连接的 2.4 GHz Wi-Fi 名称。留空时不启动 Wi-Fi，
-            AHT20 和 BLE 仍会正常运行。
+            要连接的 2.4 GHz Wi-Fi 名称。留空时使用已保存凭据或进入 AP 配网。
 
     config APP_WIFI_PASSWORD
         string "Wi-Fi password"
@@ -91,7 +96,7 @@ menu "Environment monitor configuration"
         range 1000 3600000
         default 10000
         help
-            温湿度遥测消息的默认发布周期。
+            三区域环境遥测消息的默认发布周期。
 
     config APP_OTA_HEALTH_CONFIRMATION_DELAY_MS
         int "OTA first-boot confirmation delay (ms)"
@@ -118,7 +123,7 @@ menu "Environment monitor configuration"
     config APP_FIRMWARE_RELEASE_SEQUENCE
         int "Current firmware release sequence"
         range 1 2147483647
-        default 121
+        default 130
         help
             当前固件的单调发布序号。版本字符串用于展示，发布序号用于防止
             降级；每个正式候选固件都必须递增。
@@ -128,7 +133,7 @@ menu "Environment monitor configuration"
         default "esp32s3-n16r8"
         help
             Manifest 必须携带完全相同的硬件兼容标识，防止向错误硬件写入
-            固件。BMS 中可替换为 PCB/硬件版本族标识。
+            固件；该标识用于育苗室网关的 PCB/硬件版本族。
 
     config APP_OTA_MAX_MANIFEST_SIZE
         int "Maximum OTA Manifest size (bytes)"
@@ -158,11 +163,13 @@ menu "Environment monitor configuration"
             镜像验证并激活成功后，留给日志输出的重启等待时间。
 
     config APP_OTA_CONSOLE_ENABLED
-        bool "Enable interactive OTA serial console"
+        bool "Enable interactive OTA, F407 and Wi-Fi serial console"
         default n
         help
-            启用 ota start/status 串口命令。后台日志可能干扰交互，因此默认
-            关闭，保留为理解命令适配器的可选实验入口。
+            启用 ota start/status 串口命令；板间链路启用时也注册
+            field status/query/start/stop/period 与 wifi status/reset 命令。
+            后台日志可能干扰交互，
+            因此默认关闭，留作本地联调入口。
 
     config APP_OTA_BUTTON_TRIGGER_ENABLED
         bool "Enable BOOT-button OTA trigger"

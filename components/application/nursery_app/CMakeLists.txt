@@ -1,0 +1,2 @@
+idf_component_register(SRCS "src/nursery_app.c" INCLUDE_DIRS "include"
+    REQUIRES uart_port app_config_service boot_health_service config_store esp_hw_support firmware_update_service gateway_http gateway_link gateway_outbox mqtt_service nvs_flash ota_button_service ota_console_service update_integrity_sha256 update_manifest_json update_platform_esp32 update_transport_http wifi_manager)

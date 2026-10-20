@@ -25,6 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "gateway_app.h"
 
 /* USER CODE END Includes */
 
@@ -78,6 +79,7 @@ const osThreadAttr_t supervisorTask_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+void StartStorageTask(void *argument);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -95,6 +97,7 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+  configASSERT(GatewayApp_Init());
 
   /* USER CODE END Init */
 
@@ -128,6 +131,9 @@ void MX_FREERTOS_Init(void) {
   supervisorTaskHandle = osThreadNew(StartSupervisorTask, NULL, &supervisorTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
+  const osThreadAttr_t storage_attributes = { .name="storageTask", .stack_size=4096, .priority=osPriorityBelowNormal };
+  extern void StartStorageTask(void *argument);
+  configASSERT(osThreadNew(StartStorageTask, NULL, &storage_attributes) != NULL);
   configASSERT(linkTaskHandle != NULL);
   configASSERT(fieldTaskHandle != NULL);
   configASSERT(modbusTaskHandle != NULL);
@@ -151,11 +157,8 @@ void StartLinkTask(void *argument)
 {
   /* USER CODE BEGIN StartLinkTask */
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
-  }
+  GatewayApp_LinkTask();
+  vTaskDelete(NULL);
   /* USER CODE END StartLinkTask */
 }
 
@@ -170,11 +173,8 @@ void StartFieldTask(void *argument)
 {
   /* USER CODE BEGIN StartFieldTask */
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
-  }
+  GatewayApp_FieldTask();
+  vTaskDelete(NULL);
   /* USER CODE END StartFieldTask */
 }
 
@@ -189,11 +189,8 @@ void StartModbusTask(void *argument)
 {
   /* USER CODE BEGIN StartModbusTask */
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
-  }
+  GatewayApp_ModbusTask();
+  vTaskDelete(NULL);
   /* USER CODE END StartModbusTask */
 }
 
@@ -208,16 +205,14 @@ void StartSupervisorTask(void *argument)
 {
   /* USER CODE BEGIN StartSupervisorTask */
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
-  }
+  GatewayApp_SupervisorTask();
+  vTaskDelete(NULL);
   /* USER CODE END StartSupervisorTask */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+void StartStorageTask(void *argument) { (void)argument; GatewayApp_StorageTask(); }
 
 /* USER CODE END Application */
 
